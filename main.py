@@ -20,7 +20,7 @@ PROMPT = f"""
 - セクター動向や主要指数の変化、個別銘柄のニュースを含めてください。
 """
 
-# 3. Grok API実行（モデルを最新の grok-4.2 に変更）
+# 3. Grok API実行（モデルを最新の grok-4.1 に変更）
 def get_grok_report():
     client = OpenAI(
         api_key=os.environ.get("XAI_API_KEY"),
@@ -28,7 +28,7 @@ def get_grok_report():
     )
     
     response = client.chat.completions.create(
-        model="grok-4.2", # 最新モデルを指定
+        model="grok-4.1", # ここを4.1に修正
         messages=[{"role": "user", "content": PROMPT}]
     )
     return response.choices[0].message.content
@@ -41,13 +41,13 @@ def send_discord(content):
     if len(content) > 1900:
         content = content[:1900] + "\n...(省略)"
     
-    data = {"content": f"🚀 **週間米国株レポート (Grok-4.2分析)**\n\n{content}"}
+    data = {"content": f"🚀 **週間米国株レポート (Grok-4.1分析)**\n\n{content}"}
     requests.post(webhook_url, json=data)
 
 if __name__ == "__main__":
     try:
         report = get_grok_report()
         send_discord(report)
-        print("最新モデルでの送信完了！")
+        print("最新モデル grok-4.1 での送信完了！")
     except Exception as e:
         print(f"エラーが発生しました: {e}")
