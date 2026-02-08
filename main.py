@@ -3,25 +3,22 @@ import datetime
 import requests
 from openai import OpenAI
 
-# 1. 日付の自動計算（前週の月曜〜金曜）
+# 1. 日付の自動計算
 def get_date_range():
     today = datetime.datetime.now()
-    # 前週の月曜日と金曜日を特定
     last_monday = today - datetime.timedelta(days=today.weekday() + 7)
     last_friday = last_monday + datetime.timedelta(days=4)
     return last_monday.strftime('%Y年%m月%d日'), last_friday.strftime('%m月%d日')
 
 monday_str, friday_str = get_date_range()
 
-# 2. プロンプトの組み立て
+# 2. プロンプト（短くまとめるように指示を追加）
 PROMPT = f"""
-私は米国株投資家で、主要投資対象はTSLA、PLTR、SOFI、CELHです。前週（{monday_str}から{friday_str}）とその前々週のNYSEとNASDAQの相場状況、金融環境をチェックしてください。以下の項目について、前々週との比較を交え、データを簡潔にまとめ、簡単な見解を加えて報告してください。
-
-市場全体のパフォーマンスとトレンド:主要指数の週次変化（S&P 500, DJIA, NASDAQ Composite, Russell 2000のリターン率と終値変動）。
-テクニカル指標と市場の健康度:ヒンデンブルグオーメン、ディストリビューションデイ、VIXの変化。
-金融政策とマクロ環境:FRB金融政策予想、10年物米国債利回り、米ドル指数DXYの変化。
-主要投資対象銘柄（TSLA, PLTR, SOFI, CELH）の週次まとめ:各銘柄の株価変化、関連ニュース、前々週比の勢い変化。
-全体の見解として、特にTSLA/PLTR/SOFI/CELHへの投資戦略への示唆を述べてください。
+前週（{monday_str}から{friday_str}）の米国株（TSLA, PLTR, SOFI, CELH）と市場概況を報告してください。
+【重要ルール】
+- 各項目を非常に簡潔にまとめてください。
+- 全体の文字数は必ず「日本語で800文字以内」に収めてください。
+- 箇条書きを多用してください。
 """
 
 # 3. Grok API実行
@@ -39,28 +36,20 @@ def get_grok_report():
 
 # 4. Discord送信
 def send_discord(content):
-    # GitHubのSecretsの名前に完全に一致させています
     webhook_url = os.environ.get("DISCORD_WEB_HOOK")
     
-    if not webhook_url:
-        print("エラー: DISCORD_WEB_HOOK が見つかりません。")
-        return
-
-    # Discordの2000文字制限対策
+    # 万が一文字数が多い場合は、Discordが拒否しないように強制カット
     if len(content) > 1900:
-        content = content[:1900] + "\n...(長文のため省略)"
+        content = content[:1900] + "\n...(制限のため省略)"
     
-    data = {"content": f"🚀 **週間米国株レポート ({monday_str}〜)**\n\n{content}"}
+    data = {"content": f"🚀 **週間米国株レポート**\n\n{content}"}
     
-    response = requests.post(webhook_url, json=data)
-    if response.status_code == 204:
-        print("Discordへの送信に成功しました！")
-    else:
-        print(f"Discord送信エラー: {response.status_code}")
+    # 送信結果をログに出力するように変更
+    res = requests.post(webhook_url, json=data)
+    print(f"Discord Status Code: {res.status_code}")
+    if res.status_code != 204:
+        print(f"Error Response: {res.text}")
 
 if __name__ == "__main__":
-    try:
-        report = get_grok_report()
-        send_discord(report)
-    except Exception as e:
-        print(f"実行エラー: {e}")
+    report = get_grok_report()
+    send_discord(report)
