@@ -12,16 +12,15 @@ def get_date_range():
 
 monday_str, friday_str = get_date_range()
 
-# 2. プロンプト（短くまとめるように指示を追加）
+# 2. プロンプト（最新のgrok-3向けに最適化）
 PROMPT = f"""
-前週（{monday_str}から{friday_str}）の米国株（TSLA, PLTR, SOFI, CELH）と市場概況を報告してください。
-【重要ルール】
-- 各項目を非常に簡潔にまとめてください。
-- 全体の文字数は必ず「日本語で800文字以内」に収めてください。
-- 箇条書きを多用してください。
+前週（{monday_str}から{friday_str}）の米国株（TSLA, PLTR, SOFI, CELH）と市場概況を、投資家向けに簡潔に報告してください。
+【指示】
+- 日本語で800文字程度にまとめてください。
+- セクター動向や主要指数の変化、個別銘柄のニュースを含めてください。
 """
 
-# 3. Grok API実行
+# 3. Grok API実行（モデルを最新の grok-3 に変更）
 def get_grok_report():
     client = OpenAI(
         api_key=os.environ.get("XAI_API_KEY"),
@@ -29,7 +28,7 @@ def get_grok_report():
     )
     
     response = client.chat.completions.create(
-        model="grok-2-1212", 
+        model="grok-3", # ここを最新版に修正しました
         messages=[{"role": "user", "content": PROMPT}]
     )
     return response.choices[0].message.content
@@ -37,19 +36,21 @@ def get_grok_report():
 # 4. Discord送信
 def send_discord(content):
     webhook_url = os.environ.get("DISCORD_WEB_HOOK")
-    
-    # 万が一文字数が多い場合は、Discordが拒否しないように強制カット
+    if not webhook_url:
+        print("Webhook URLが設定されていません")
+        return
+
     if len(content) > 1900:
-        content = content[:1900] + "\n...(制限のため省略)"
+        content = content[:1900] + "\n...(省略)"
     
-    data = {"content": f"🚀 **週間米国株レポート**\n\n{content}"}
-    
-    # 送信結果をログに出力するように変更
+    data = {"content": f"🚀 **週間米国株レポート (Grok-3分析)**\n\n{content}"}
     res = requests.post(webhook_url, json=data)
-    print(f"Discord Status Code: {res.status_code}")
-    if res.status_code != 204:
-        print(f"Error Response: {res.text}")
+    print(f"Discord Status: {res.status_code}")
 
 if __name__ == "__main__":
-    report = get_grok_report()
-    send_discord(report)
+    try:
+        report = get_grok_report()
+        send_discord(report)
+        print("送信完了！")
+    except Exception as e:
+        print(f"エラーが発生しました: {e}")
