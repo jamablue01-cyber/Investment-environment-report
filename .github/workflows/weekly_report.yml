@@ -1,30 +1,27 @@
 name: Weekly Report to Discord
 
 on:
-schedule:
-# 毎週日曜日 朝6:00 (日本時間) に実行するように設定
-# cronはUTC(世界標準時)なので、日本時間から9時間引いた「土曜21時」に設定します
-- cron: '0 21 * * 6'
-workflow_dispatch:     # これを入れることで、ボタンを押して今すぐ実行できるようになります
+  schedule:
+    - cron: '0 21 * * 6'
+  workflow_dispatch:
 
 jobs:
-run-grok:
-runs-on: ubuntu-latest
-steps:
-- name: Checkout code
-uses: actions/checkout@v3
+  run-grok:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-  - name: Set up Python
-    uses: actions/setup-python@v4
-    with:
-      python-version: '3.9'
-      
-  - name: Install dependencies
-    run: pip install openai requests
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-  - name: Run script
-    env:
-      # GitHub Secretsに登録した名前と一致させています
-      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-      DISCORD_WEB_HOOK: ${{ secrets.DISCORD_WEB_HOOK }}
-    run: python main.py
+      - name: Install dependencies
+        run: pip install openai requests
+
+      - name: Run script
+        env:
+          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          DISCORD_WEB_HOOK: ${{ secrets.DISCORD_WEB_HOOK }}
+        run: python main.py
