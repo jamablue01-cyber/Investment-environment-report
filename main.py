@@ -1,3 +1,4 @@
+import yfinance as yf
 import os
 import datetime
 import requests
