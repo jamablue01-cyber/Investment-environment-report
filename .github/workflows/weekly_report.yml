@@ -1,24 +1,25 @@
 name: Weekly Report to Discord
 
 on:
-  schedule:
-    - cron: '0 21 * * 6'
-  workflow_dispatch:
+  workflow_dispatch:  # 手動実行ボタンを表示させる設定
 
 jobs:
   run-grok:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
+      # ★ ここが重要！ yfinance等をインストールする手順です
       - name: Install dependencies
-        run: pip install openai requests
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run script
         env:
