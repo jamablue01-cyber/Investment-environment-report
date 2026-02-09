@@ -1,72 +1,87 @@
-import yfinance as yf
 import os
 import datetime
 import requests
 import time
+import yfinance as yf
 from openai import OpenAI
 
-def get_date_info():
-    today = datetime.date.today()
-    days_since_monday = today.weekday()
-    
-    # 今日が月曜(0)〜火曜(1)の場合、先週を対象にオフセット
-    offset = 7 if days_since_monday <= 1 else 0
-    last_monday = today - datetime.timedelta(days=days_since_monday + offset)
-    last_friday = last_monday + datetime.timedelta(days=4)
-    
-    # 前週
-    prev_monday = last_monday - datetime.timedelta(days=7)
-    prev_friday = prev_monday + datetime.timedelta(days=4)
-    
-    return {
-        "today": today.strftime('%Y年%m月%d日'),
-        "current_range": f"{last_monday.strftime('%m/%d')}〜{last_friday.strftime('%m/%d')}",
-        "prev_range": f"{prev_monday.strftime('%m/%d')}〜{prev_friday.strftime('%m/%d')}",
-        "current_start": last_monday.strftime('%Y-%m-%d'),
-        "current_end": last_friday.strftime('%Y-%m-%d'),
+def get_market_data():
+    """
+    yfinanceを使用して、実際の株価と騰落率を物理的に取得する。
+    AIの嘘（ハルシネーション）を排除するための「真実のソース」。
+    """
+    # 調査対象の銘柄と指数
+    tickers = {
+        "PLTR": "Palantir",
+        "TSLA": "Tesla",
+        "SOFI": "SoFi",
+        "CELH": "Celsius",
+        "^GSPC": "S&P 500",
+        "^IXIC": "NASDAQ",
+        "^DJI": "Dow Jones",
+        "^RUT": "Russell 2000"
     }
+    
+    data_results = {}
+    today = datetime.date.today()
+    # 直近の完了した週（金曜終値）を計算
+    end_date = today - datetime.timedelta(days=(today.weekday() + 2) % 7 + 1)
+    start_date = end_date - datetime.timedelta(days=4)
+    
+    print(f"データ取得期間: {start_date} ～ {end_date}")
 
-def get_grok_report(section_title, section_detail, date_info):
+    for symbol, name in tickers.items():
+        try:
+            ticker = yf.Ticker(symbol)
+            # 期間中のヒストリカルデータを取得
+            hist = ticker.history(start=start_date, end=end_date + datetime.timedelta(days=1))
+            if not hist.empty:
+                close_start = hist['Close'].iloc[0]
+                close_end = hist['Close'].iloc[-1]
+                change = ((close_end - close_start) / close_start) * 100
+                data_results[symbol] = {
+                    "name": name,
+                    "close": round(close_end, 2),
+                    "change": round(change, 2),
+                    "start": round(close_start, 2)
+                }
+            else:
+                data_results[symbol] = "データなし"
+        except Exception as e:
+            data_results[symbol] = f"エラー: {e}"
+    
+    return data_results, start_date, end_date
+
+def get_grok_report(section_title, section_detail, date_info, market_data):
     client = OpenAI(
         api_key=os.environ.get("XAI_API_KEY"),
         base_url="https://api.x.ai/v1",
-        timeout=120.0, # 検索に時間がかかるためタイムアウトを延長
+        timeout=120.0,
     )
     
-    # 【最重要修正】2026年の実勢価格帯をAIに強制認識させるプロンプト
+    # 物理的に取得した数値を文字列にする
+    market_summary = "【確定市場データ】\n"
+    for k, v in market_data.items():
+        if isinstance(v, dict):
+            market_summary += f"- {v['name']} ({k}): 終値 ${v['close']} (騰落率 {v['change']}%)\n"
+
     system_prompt = f"""
-あなたはプロの米国株シニアアナリストです。
-現在の日付は {date_info['today']} です。
+あなたはプロの米国株シニアアナリストです。本日（{date_info['today']}）を基準に執筆してください。
+【鉄則】
+1. 以下の「確定市場データ」は物理的な取引所データです。数値は1ミリも変えないでください。
+2. あなたの仕事は、この「確定した数値（下落・上昇）」が、なぜ起きたのかをLive Searchで調査し、解説することです。
+3. 数値がマイナスなのに「好調だった」などと書くことは、虚偽報告として厳禁します。
+4. プロンプトにない「嘘の数字」は一切出さないでください。
 
-【価格バリデーション・ルール（2026年実勢）】
-Live Searchで見つかったデータが以下の範囲外である場合、それは「古いデータ」または「誤報」です。必ず再検索して最新の2026年終値を採用してください：
-- PLTR: 終値は $400 〜 $700 の範囲内（$100以下は2024年以前の古いデータです）
-- TSLA: 終値は $900 〜 $1,300 の範囲内
-- 主要指数（S&P500 6,500超、NASDAQ 22,000超、Dow 48,000超）
-
-【厳守ルール】
-1. 対象週は必ず完了した過去の週（金曜終値まで確定したもの）を扱う。
-2. Yahoo Finance (Historical Data) を最優先し、2026年現在の実勢レベルを厳密に反映すること。
-3. ニュースは架空のものを排除し、実在企業・実際の数字を明記。
-4. 数値の桁間違い（100Bと10B、株価の小数点の位置など）を徹底的にチェックしてください。
+{market_summary}
 """
 
     user_prompt = f"""
-【分析対象期間】
-・直近週：{date_info['current_range']}（{date_info['current_start']} ～ {date_info['current_end']}）
-・前々週：{date_info['prev_range']}
+【分析対象期間: {date_info['current_range']}】
+セクション: {section_title}
+詳細要件: {section_detail}
 
-【今回のセクション：{section_title}】
-{section_detail}
-
-특히 PLTRについては、現在S&P500の主力銘柄として株価が数百ドル台で推移しています。
-過去の「$20〜$40台」のデータは一切無視し、最新の終値を正確に報告してください。
-
-出力形式：
-- 各銘柄の終値を正確に記載（例: PLTR: $xxx.xx）
-- 前週との騰落率を小数点2桁まで
-- 適切な改行とMarkdown（太字等）を使用
-- レポート冒頭に「データ取得日時: {date_info['today']}」を追加
+※レポートはMarkdownで美しく装飾し、確定データを正確に反映した上で、具体的なニュース（日付・ソース）を添えてください。
 """
 
     response = client.chat.completions.create(
@@ -75,53 +90,43 @@ Live Searchで見つかったデータが以下の範囲外である場合、そ
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        temperature=0.3,  # 事実精度をさらに高めるため低めに設定
-        max_tokens=4000
+        temperature=0.2 # 創作を防ぎ、事実に基づかせる
     )
     return response.choices[0].message.content
 
 def send_discord(title, content):
     webhook_url = os.environ.get("DISCORD_WEB_HOOK")
     if not webhook_url: return
-    
-    header = f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n## 📈 {title}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    full_content = header + content
-    
-    # 2000文字制限対策
-    chunks = []
-    while len(full_content) > 1800:
-        split_point = full_content.rfind('\n', 0, 1800)
-        if split_point == -1: split_point = 1800
-        chunks.append(full_content[:split_point])
-        full_content = "👉 (続き)\n" + full_content[split_point:]
-    chunks.append(full_content)
-    
-    for chunk in chunks:
-        requests.post(webhook_url, json={"content": chunk})
-        time.sleep(1.5)
-    
-    print(f"Sent: {title}")
+    header = f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n## 📝 {title}\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    # Discordの2000文字制限対策
+    if len(header + content) > 2000:
+        msg = (header + content)[:1990] + "..."
+    else:
+        msg = header + content
+    requests.post(webhook_url, json={"content": msg})
+    time.sleep(2)
 
 if __name__ == "__main__":
-    dates = get_date_info()
-    print(f"レポート生成開始: {dates['today']}（対象週: {dates['current_range']}）")
+    # 1. 物理データの取得
+    raw_data, s_dt, e_dt = get_market_data()
+    
+    date_info = {
+        "today": datetime.date.today().strftime('%Y年%m月%d日'),
+        "current_range": f"{s_dt.strftime('%m/%d')}〜{e_dt.strftime('%m/%d')}"
+    }
 
+    # 2. レポートセクションの構築
     sections = [
-        ("1. 市場全体のパフォーマンスとトレンド", "S&P500, Dow Jones, NASDAQ, Russell 2000の週間騰落率と終値。主要セクター比較。"),
-        ("2. テクニカル指標と市場の健康度", "VIX、ヒンデンブルグ・オーメン、新高値/新安値比率、Fear & Greed Indexの最新値。"),
-        ("3. 金融政策とマクロ環境", "10年債利回り、DXY、WTI原油、金、銅の週間動向。CME FedWatchの利下げ確率。"),
-        ("4. 経済指標とイベント", "直近週に発表された主要経済指標実績と予想比。主要企業の決算ハイライト。"),
-        ("5. センチメントと心理指標", "AAII調査、CNN Fear & Greed Index、プット/コール比率。"),
-        ("6. 主要銘柄（TSLA, PLTR, SOFI, CELH）詳細分析 & 週の総括", 
-         "各銘柄の終値（特にPLTRの数百ドル台を厳守）、騰落率、ニュース、オプション活動。最後に投資戦略への示唆。")
+        ("市場全体と指数の動向", "S&P500, NASDAQ, Dow, Russell 2000の確定値に基づき、なぜこの騰落になったのか背景を分析。"),
+        ("主要銘柄(TSLA, PLTR, SOFI, CELH)の深掘り", "確定した4銘柄の株価に基づき、その週の重要ニュース、決算、材料、オプション活動をLive Searchで特定。")
     ]
 
     for title, detail in sections:
         try:
             print(f"生成中: {title}")
-            report = get_grok_report(title, detail, dates)
+            report = get_grok_report(title, detail, date_info, raw_data)
             send_discord(title, report)
         except Exception as e:
-            print(f"Error in {title}: {e}")
-    
-    send_discord("✅ レポート完了", f"{dates['today']} 分の全セクション送信が完了しました。")
+            print(f"Error: {e}")
+
+    print("完了しました。")
